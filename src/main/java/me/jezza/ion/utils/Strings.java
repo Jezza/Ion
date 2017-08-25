@@ -1,17 +1,15 @@
-package me.jezza.ion.cluster;
+package me.jezza.ion.utils;
 
-import java.io.IOException;
-import java.net.*;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 /**
- * Basically a config object.
- * It does the connection handling.
- *
  * @author Jezza
  */
-public final class IonClusterBuilder {
+public final class Strings {
+
 	private static final String LOWER_KEY = "ion.cluster.range.lower";
 	private static final String UPPER_KEY = "ion.cluster.range.upper";
 
@@ -24,13 +22,13 @@ public final class IonClusterBuilder {
 
 	static {
 		try {
-			String lower = System.getProperty(LOWER_KEY);
-			InetAddress lowerBound = InetAddress.getByName(lower == null ? LOWER_DEFAULT : lower);
+			String lower = System.getProperty(LOWER_KEY, LOWER_DEFAULT);
+			InetAddress lowerBound = InetAddress.getByName(lower);
 			if (!lowerBound.isMulticastAddress())
 				throw new IllegalArgumentException("Invalid lower bound: " + lowerBound);
 
-			String upper = System.getProperty(UPPER_KEY);
-			InetAddress upperBound = InetAddress.getByName(upper == null ? UPPER_DEFAULT : upper);
+			String upper = System.getProperty(UPPER_KEY, UPPER_DEFAULT);
+			InetAddress upperBound = InetAddress.getByName(upper);
 			if (!upperBound.isMulticastAddress())
 				throw new IllegalArgumentException("Invalid upper bound: " + upperBound);
 
@@ -39,12 +37,14 @@ public final class IonClusterBuilder {
 			int l = UPPER.length;
 			byte[] result = new byte[l];
 
-			byte up;
-			byte low;
+			int up;
+			int low;
 			for (int i = 0; i < l; i++) {
-				up = UPPER[i];
-				low = LOWER[i];
-				result[i] = (up & 0xFF) > (low & 0xFF) ? (byte) (up - low) : 0;
+				up = UPPER[i] & 0xFF;
+				low = LOWER[i] & 0xFF;
+				result[i] = up > low
+						? (byte) (up - low)
+						: 0;
 			}
 			if (assertArray(result))
 				throw new IllegalArgumentException("Lower and Upper IP Bounds are invalid. The lower bound should be below the upper bound.");
@@ -61,16 +61,11 @@ public final class IonClusterBuilder {
 		return true;
 	}
 
-	private final String name;
-	private final InetAddress normalised;
-
-	public IonClusterBuilder(String name) {
-		this.name = name;
-		normalised = normalise(name);
-		System.out.println(normalised);
+	private Strings() {
+		throw new IllegalStateException();
 	}
 
-	private InetAddress normalise(String name) {
+	public static InetAddress normalise(String name) {
 		byte[] range = RANGE;
 		int l = range.length;
 		byte[] bits = hash(name, l);
@@ -81,7 +76,7 @@ public final class IonClusterBuilder {
 			byte bit = bits[i];
 			if (r == 0) {
 				result[i] = lower[i];
-			} else if ((bit & 0xFF) > (r & 0xFF)) {
+			} else if ((bit & 0xFF) >= (r & 0xFF)) {
 				result[i] = (byte) ((bit & 0xFF) % r + lower[i]);
 			} else {
 				result[i] = bit;
@@ -94,29 +89,9 @@ public final class IonClusterBuilder {
 		}
 	}
 
-	private byte[] hash(String name, int length) {
-		return ByteBuffer.allocate(length).putInt(name.hashCode()).array();
-	}
-
-	public IonCluster join(int port) {
-		return join(port, null);
-	}
-
-	public IonCluster join(int port, NetworkInterface _net) {
-		try {
-			InetSocketAddress local = new InetSocketAddress(port);
-			MulticastSocket socket = new MulticastSocket(local);
-			InetSocketAddress group = new InetSocketAddress(normalised, port);
-			socket.joinGroup(group, _net);
-			NetworkInterface net = socket.getNetworkInterface();
-			return new IonCluster(name, local, group, net, socket);
-		} catch (IOException e) {
-			throw new IllegalStateException(e);
-		}
-	}
-
-	@Override
-	public String toString() {
-		return "[IonClusterBuilder:" + name + ':' + normalised + ']';
+	private static byte[] hash(String name, int length) {
+		return ByteBuffer.allocate(length)
+				.putInt(name.hashCode())
+				.array();
 	}
 }
